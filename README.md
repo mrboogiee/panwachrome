@@ -46,7 +46,7 @@ Build the Web Store package with `make` (creates `panwachrome.zip`).
 
 There was no PAN-OS 10/11/12 device available during the port, so the code was checked statically and against sample `top` output only. Please test against a real device and report what does not parse. Known limits:
 
-- API keys and the device list are kept in memory only (as before). They are lost when the browser restarts.
+- Bundled libraries: jQuery 4.0.0, Flot 4.2.6 and URI.js 1.19.11 (updated from jQuery 1.8.3, Flot 0.7 and URI.js 1.8.2), plus the throttle plugin 1.1, a small local RSVP-style promise shim and a modified easyPieChart 2.1.0 fork with multi-ring support. These are vendored, not installed from a package manager.
 - jQuery 1.8.3 and Flot 0.7 are still bundled. They run only on extension pages with the default MV3 content security policy.
 - Per-DP session counts depend on the output format of `show session all filter ... count yes`; the text fallback is untested.
 

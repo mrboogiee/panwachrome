@@ -1391,7 +1391,7 @@
 		mdevice.on("sessionadvancedview:update", deviceUpdateHandler);
 		mdevice.on("sessionpervsysview:update", deviceUpdateHandler);
 		mdevice.on("hwifdetailsview:update", deviceUpdateHandler);
-		$(w).bind('beforeunload', function() {
+		$(w).on('beforeunload', function() {
 			cancelAnimationFrame(cdownRAFID);
 
 			mdevice.off('countersview:update', deviceUpdateHandler);
@@ -1425,13 +1425,13 @@
 		});
 		
 		// bind events on the page
-		$containermenutool.bind('click', function() {
+		$containermenutool.on('click', function() {
 			$containermenu.addClass('containermenu-show');
 		});
-		$containermenu.click(function() {
+		$containermenu.on('click', function() {
 			$containermenu.removeClass('containermenu-show');
 		});
-		$w.bind('hashchange', function() {
+		$w.on('hashchange', function() {
 			$containermenu.removeClass('containermenu-show');
 			showSection(URI(d.location.href).fragment());
 		});
@@ -1461,9 +1461,9 @@
 		// setup the container menu
 		$containermenutool.height($containermenu.height()); // we don't know the height initially
 		positionMenuBar(); // position the containermenu near #main
-		$w.resize(positionMenuBar); // and do it when the window changes
-		$w.resize($.throttle(100, fixTCHeight));
-		$w.scroll($.throttle(20, positionMenuBar));
+		$w.on('resize', positionMenuBar); // and do it when the window changes
+		$w.on('resize', $.throttle(100, fixTCHeight));
+		$w.on('scroll', $.throttle(20, positionMenuBar));
 		
 		// change the title
 		$('#panwheader span').text('Pan(w)achrome - Statistics for '+mdevice.hostname+' ['+mdevice.serial+']');
