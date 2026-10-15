@@ -2,7 +2,7 @@
 
 (function(d,w,u) {
 	var mdevice;
-	var backgroundPage;
+	var config;
 	var eventproxy, viewcache;
 	var $w;
 	var $d;
@@ -184,7 +184,7 @@
 
 		var row = [];
 		for(var j = 0; j < spv.perVsys.length; j++) {
-			row.push('<td><div class="stats-label">'+spv.perVsys[j].name+'</div><div class="stats-figure">'+numformatter(P.sumArray(spv.perVsys[j].total))+'</div></td>');
+			row.push('<td><div class="stats-label">'+bridge.escapeHtml(spv.perVsys[j].name)+'</div><div class="stats-figure">'+numformatter(P.sumArray(spv.perVsys[j].total))+'</div></td>');
 			if(row.length == 6) {
 				ihtml.push('<tr>'+row.join('')+'</tr>');
 				row = [];
@@ -201,14 +201,14 @@
 		if ($ssr.hasClass("fa-spin")) 
 			return;
 		$ssr.addClass("fa-spin");
-		backgroundPage.panachrome.updateSessionAdvancedView(mdevice);
+		mdevice.refresh('sessionAdvanced');
 	};
 	var refreshSessionPerVsys = function() {
 		var $spvr = $("#stats-sessions-pervsys-refresh");
 		if ($spvr.hasClass("fa-spin"))
 			return;
 		$spvr.addClass("fa-spin");
-		backgroundPage.panachrome.updateSessionPerVsysView(mdevice);
+		mdevice.refresh('sessionPerVsys');
 	};
 	var updateSessionAdvancedStats = function() {
 		var tc;
@@ -798,7 +798,7 @@
 		console.log("refreshHwIfDetails");
 		evt.stopPropagation();
 
-		backgroundPage.panachrome.updateHwIfDetailsView(mdevice);
+		mdevice.refresh('hwifdetails');
 		$('#hwifdetails-refresh').addClass('fa-spin');
 	};
 	var updateHwIfDetails = function() {
@@ -818,7 +818,7 @@
 			for(var prop in mdevice.hwifdetailsView.hwifs["p"+hwifidx]) {
 				if(!mdevice.hwifdetailsView.hwifs["p"+hwifidx].hasOwnProperty(prop))
 					continue;
-				ihtml.push('<tr><td>'+prop+'</td><td>'+numformatter(mdevice.hwifdetailsView.hwifs["p"+hwifidx][prop])+'</td></tr>');
+				ihtml.push('<tr><td>'+bridge.escapeHtml(prop)+'</td><td>'+numformatter(mdevice.hwifdetailsView.hwifs["p"+hwifidx][prop])+'</td></tr>');
 			}
 		}
 		if(ihtml.length == 0) {
@@ -862,7 +862,7 @@
 				if (typeof cc.name == 'undefined') continue;
 				var ifinfo = mdevice.interfaces.hw[cc.name] || {state: '--', mode: '--', duplex: '--', speed: '--'}; // XXX sometime ifinfo is undefined (ifs changed due to commit)
 				var mode = ifinfo.mode || "--"; // in 4.1 .mode not supported
-				ihtml.push('<tr><td rowspan="2">'+cc.name+'</td><td rowspan="2">'+ifinfo.state+'/'+mode+'/'+ifinfo.duplex+'/'+ifinfo.speed+(cc.name[0] == 'e' ? (' <i class="hwifdetails fa fa-gears" data-hwifidx="'+(j+1)+'"></i>') : '')+'</td><td class="noborder chartable" data-aname="hw.ibytes.rate"> RX '+itformatter(cc.ibytes.rate*8)+'bps</td><td class="noborder chartable" data-aname="hw.ipackets.rate"> RX '+itformatter(cc.ipackets.rate)+'pps</td><td rowspan="2" class="chartable" data-aname="hw.ierrors.rate">'+itformatter(cc.ierrors.rate)+'pps</td><td rowspan="2" class="chartable" data-aname="hw.idrops.rate">'+itformatter(cc.idrops.rate)+'pps</td></tr>');
+				ihtml.push('<tr><td rowspan="2">'+bridge.escapeHtml(cc.name)+'</td><td rowspan="2">'+bridge.escapeHtml(ifinfo.state+'/'+mode+'/'+ifinfo.duplex+'/'+ifinfo.speed)+(cc.name[0] == 'e' ? (' <i class="hwifdetails fa fa-gears" data-hwifidx="'+(j+1)+'"></i>') : '')+'</td><td class="noborder chartable" data-aname="hw.ibytes.rate"> RX '+itformatter(cc.ibytes.rate*8)+'bps</td><td class="noborder chartable" data-aname="hw.ipackets.rate"> RX '+itformatter(cc.ipackets.rate)+'pps</td><td rowspan="2" class="chartable" data-aname="hw.ierrors.rate">'+itformatter(cc.ierrors.rate)+'pps</td><td rowspan="2" class="chartable" data-aname="hw.idrops.rate">'+itformatter(cc.idrops.rate)+'pps</td></tr>');
 				ihtml.push('<tr><td class="chartable" data-aname="hw.obytes.rate"> TX '+itformatter(cc.obytes.rate*8)+'bps</td><td class="chartable" data-aname="hw.opackets.rate"> TX '+itformatter(cc.opackets.rate)+'pps</td></tr>');
 			}
 		} else {
@@ -881,7 +881,7 @@
 					console.error("Unknown if: "+cc.name);
 					continue;
 				}
-				ihtml.push('<tr><td rowspan="2">'+cc.name+'</td><td rowspan="2">vsys'+ifinfo.vsys+'/'+ifinfo.zone+'</td><td class="noborder chartable" data-aname="ifnet.ibytes.rate"> RX '+itformatter(cc.ibytes.rate*8)+'bps</td><td class="noborder chartable" data-aname="ifnet.ipackets.rate"> RX '+itformatter(cc.ipackets.rate)+'pps</td><td rowspan="2" class="chartable" data-aname="ifnet.ierrors.rate">'+itformatter(cc.ierrors.rate)+'pps</td><td rowspan="2" class="chartable" data-aname="ifnet.idrops.rate">'+itformatter(cc.idrops.rate)+'pps</td></tr>');
+				ihtml.push('<tr><td rowspan="2">'+bridge.escapeHtml(cc.name)+'</td><td rowspan="2">vsys'+bridge.escapeHtml(ifinfo.vsys+'/'+ifinfo.zone)+'</td><td class="noborder chartable" data-aname="ifnet.ibytes.rate"> RX '+itformatter(cc.ibytes.rate*8)+'bps</td><td class="noborder chartable" data-aname="ifnet.ipackets.rate"> RX '+itformatter(cc.ipackets.rate)+'pps</td><td rowspan="2" class="chartable" data-aname="ifnet.ierrors.rate">'+itformatter(cc.ierrors.rate)+'pps</td><td rowspan="2" class="chartable" data-aname="ifnet.idrops.rate">'+itformatter(cc.idrops.rate)+'pps</td></tr>');
 				ihtml.push('<tr><td class="chartable" data-aname="ifnet.obytes.rate"> TX '+itformatter(cc.obytes.rate*8)+'bps</td><td class="chartable" data-aname="ifnet.opackets.rate"> TX '+itformatter(cc.opackets.rate)+'pps</td></tr>');
 			}
 		} else {
@@ -1139,7 +1139,7 @@
 						rcclass = "value-changed-up";
 					}
 				}
-				ihtml.push('<tr data-search="'+cc.name+cc.category+cc.severity+cc.aspect+'"><td>'+cc.name+'</td><td>'+cc.category+'</td><td>'+cc.severity+'</td><td>'+cc.aspect+'</td><td class="chartable" data-aname="value"><span class="'+vcclass+'">'+numformatter(cc.value)+'</span></td><td class="chartable" data-aname="rate"><span class="'+rcclass+'">'+numformatter(cc.rate)+'</span></td></tr>');
+				ihtml.push('<tr data-search="'+bridge.escapeHtml(cc.name+cc.category+cc.severity+cc.aspect)+'"><td>'+bridge.escapeHtml(cc.name)+'</td><td>'+bridge.escapeHtml(cc.category)+'</td><td>'+bridge.escapeHtml(cc.severity)+'</td><td>'+bridge.escapeHtml(cc.aspect)+'</td><td class="chartable" data-aname="value"><span class="'+vcclass+'">'+numformatter(cc.value)+'</span></td><td class="chartable" data-aname="rate"><span class="'+rcclass+'">'+numformatter(cc.rate)+'</span></td></tr>');
 			}
 
 			mycounters = null;
@@ -1268,13 +1268,13 @@
 		cdownStart = +new Date;
 	};
 	var cdownRender = function() {
-		if(backgroundPage == null) return;
+		if(config == null) return;
 		
 		requestAnimationFrame(cdownRender);
 
 		var now = +new Date;
 		var dt = now - cdownStart;
-		var ds = backgroundPage.panachrome.config.trackingInterval / 28;
+		var ds = config.trackingInterval / 28;
 		var np = dt/(ds*1000);
 		if(np > 28) np = 28;
 		if($('#stats-cdown-bar').height() == np) return;
@@ -1304,7 +1304,7 @@
 		}
 	};
 	var displayError = function(msg) {
-		$('#main').html('<div id="mainheader">'+msg+'</div>');
+		$('#main').html('<div id="mainheader">'+bridge.escapeHtml(msg)+'</div>');
 	};
 
 	var cleanEventProxy = function() {
@@ -1374,13 +1374,15 @@
 
 		initEventProxy();
 
-		// hook the device and panachrome
-		backgroundPage = chrome.extension.getBackgroundPage();
-		mdevice = backgroundPage.panachrome.monitored[params.d];
-		if (typeof mdevice == "undefined") {
-			displayError("Device "+params.d+" not found");
-			return;
-		}
+		config = bridge.getConfig();
+		bridge.openDevice(params.d).then(function(md) {
+			mdevice = md;
+			setupDevice();
+		}, function(err) {
+			displayError(err);
+		});
+	};
+	var setupDevice = function() {
 		mdevice.on("countersview:update", deviceUpdateHandler);
 		mdevice.on("ifsview:update", deviceUpdateHandler);
 		mdevice.on("sessioninfoview:update", deviceUpdateHandler);
@@ -1404,11 +1406,9 @@
 			eventproxy = null;
 			RSVP.shutdown();
 			
-			// help the GC here
-			// since we are in the same context of the backgroundPage
-			// we should help GC to try avoid memory leaks
+			mdevice.close();
 			mdevice = null;
-			backgroundPage = null;
+			config = null;
 			$(d).empty();
 
 			Object.keys($.cache).map(function(centry) {
@@ -1475,5 +1475,5 @@
 		checkAndDisplayWaiting();
 	};
 	
-	$(d).ready(setup());
+	$(d).ready(setup);
 })(document,window);

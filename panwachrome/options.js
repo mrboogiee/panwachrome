@@ -20,24 +20,22 @@ var panachrome_options = {
 		return typeof n === 'string' && parseFloat(n) == parseInt(n) && !isNaN(n);
 	},
 	
-  saveCheckbox: function (id) {
-    if (document.getElementById(id).checked) {
-      localStorage.setItem(id, '1');
-    } else {
-      localStorage.setItem(id, '0');
-    }
+  defaults: {
+    notifTimeout: '5',
+    trackingInterval: '30',
+    requestTimeout: '5',
+    ifsTrackingInterval: '5',
+    jobsTrackingInterval: '30'
   },
-  
-  loadCheckbox: function (id) {
-    document.getElementById(id).checked = localStorage.getItem(id);
-  },
+
 
   saveTextbox: function (id) {
     localStorage.setItem(id, document.getElementById(id).value);
   },
 
   loadTextbox: function (id) {
-    document.getElementById(id).value = localStorage.getItem(id) || '';
+    var v = localStorage.getItem(id);
+    document.getElementById(id).value = (v === null ? (panachrome_options.defaults[id] || '') : v);
   },
 
   saveIntTextbox: function (id) {
@@ -53,13 +51,21 @@ var panachrome_options = {
   },
   loadList: function(id) {
     var ul = document.getElementById(id);
-    var list = JSON.parse(localStorage.getItem(id));
+    var list = JSON.parse(localStorage.getItem(id)) || [];
 
-    var innerHTML = "";
+    ul.textContent = "";
     for (var i = 0; i < list.length; i++) {
-      innerHTML = innerHTML+'<li><i class="fa-li fa fa-angle-right"></i>'+list[i]+'<i class="trash fa fa-trash-o"></i></li>';
+      var li = document.createElement('li');
+      var arrow = document.createElement('i');
+      arrow.className = 'fa-li fa fa-angle-right';
+      var trash = document.createElement('i');
+      trash.className = 'trash fa fa-trash-o';
+      trash.addEventListener('click', panachrome_options.deleteListElement);
+      li.appendChild(arrow);
+      li.appendChild(document.createTextNode(list[i]));
+      li.appendChild(trash);
+      ul.appendChild(li);
     }
-    ul.innerHTML = innerHTML;
   },
   saveList: function(id) {
     var ul = document.getElementById(id);
@@ -126,15 +132,11 @@ var panachrome_options = {
   reset: function () {
     localStorage.clear();
     panachrome_options.load();
+    chrome.runtime.sendMessage({ target: 'engine', cmd: 'readconfig' }).catch(function() {});
   },
 
   init: function () {
     panachrome_options.load();
-
-    var trashes = document.getElementsByClassName('trash');
-    for (var i = 0; i < trashes.length; i++) {
-      trashes.item(i).addEventListener('click', panachrome_options.deleteListElement);
-    }
   }
 };
 
@@ -148,10 +150,11 @@ saveButton.onclick = function() {
   }
 		
 	panachrome_options.save();
-	chrome.tabs.getSelected(null, function(tab) {
-		chrome.tabs.remove(tab.id);
+	chrome.runtime.sendMessage({ target: 'engine', cmd: 'readconfig' }).catch(function() {}).then(function() {
+		chrome.tabs.getCurrent(function(tab) {
+			if (tab) chrome.tabs.remove(tab.id);
+		});
 	});
-	chrome.extension.sendRequest({cmd: 'readconfig'});
 };
 var resetButton = document.getElementById("reset-button");
 resetButton.onclick = panachrome_options.init;

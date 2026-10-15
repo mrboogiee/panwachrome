@@ -32,53 +32,37 @@ panachrome.readConfig = function() {
 	panachrome.config.filteredJobs = cval || [];
 };
 
-// messages to user
-panachrome.filterJobClicked = function(nid, buttonidx) {
-	if (nid.slice(0, 3) != "Job")
+// messages to user. Notifications are shown by the service worker
+// (chrome.notifications is not available in the offscreen document).
+panachrome.sendToWorker = function(msg) {
+	msg.target = "sw";
+	chrome.runtime.sendMessage(msg).catch(function() {});
+};
+panachrome.addFilteredJob = function(jobtype) {
+	if (panachrome.config.filteredJobs.indexOf(jobtype) != -1)
 		return;
 
-	var jobtype = nid.split("@")[2];
-	for (var i = 0; i < panachrome.config.filteredJobs.length; i++) {
-		if (panachrome.config.filteredJobs[i] == jobtype)
-			return;
-	}
-
 	panachrome.config.filteredJobs.push(jobtype);
-
 	localStorage.setItem('filteredJobs', JSON.stringify(panachrome.config.filteredJobs));
 };
-panachrome.notificationCloseOnTimeout = function(nid) {
-	setTimeout(function() {
-		chrome.notifications.clear(nid, function() {});
-	}, panachrome.config.notifTimeout*1000);
-};
 panachrome.error = function(e) {
-	var n = webkitNotifications.createNotification("images/icon_paper_128.png", "Error", e);
-	n.show();
-	setTimeout(function() { n.cancel(); }, panachrome.config.notifTimeout*1000);
+	panachrome.sendToWorker({ cmd: "notify", title: "Error", message: String(e), timeout: panachrome.config.notifTimeout });
 };
 panachrome.info = function(e) {
-	var n = webkitNotifications.createNotification("images/icon_paper_128.png", "Info", e);
-	n.show();
-	setTimeout(function() { n.cancel(); }, panachrome.config.notifTimeout*1000);
+	panachrome.sendToWorker({ cmd: "notify", title: "Info", message: String(e), timeout: panachrome.config.notifTimeout });
 };
 panachrome.showJob = function(jobid, jobtype, jobresult) {
-	for (var i = 0; i < panachrome.config.filteredJobs.length; i++) {
-		if (panachrome.config.filteredJobs[i] == jobtype)
-			return;
-	}
+	if (panachrome.config.filteredJobs.indexOf(jobtype) != -1)
+		return;
 
-	chrome.notifications.create("Job@"+jobid+"@"+jobtype, {
-		title: 'Job '+jobid,
-		type: 'basic',
-		iconUrl: "images/icon_paper_128.png",
+	panachrome.sendToWorker({
+		cmd: "notify",
+		id: "Job@"+jobid+"@"+jobtype,
+		title: "Job "+jobid,
 		message: "Job "+jobid+" ("+jobtype+") finished: "+jobresult,
-		priority: 0,
-		buttons: [{
-			title: 'Don\'t show this job again'
-		}]
-	},
-	panachrome.notificationCloseOnTimeout);
+		timeout: panachrome.config.notifTimeout,
+		filterButton: true
+	});
 };
 
 // monitoring part
@@ -125,13 +109,17 @@ panachrome.initDeviceSystemInfo = function(mdevice) {
 		});
 };
 
-panachrome.cpCpure = /Cpu\(s\)\:\W+([0-9]+\.[0-9]+)\%us,\W+([0-9]+\.[0-9]+)\%sy,\W+([0-9]+\.[0-9]+)\%ni,\W+([0-9]+\.[0-9]+)\%id,\W+([0-9]+.[0-9]+)\%wa,\W+([0-9]+\.[0-9]+)\%hi,\W+([0-9]+\.[0-9]+)\%si,\W+([0-9]+\.[0-9]+)\%st/;
-panachrome.cpCpure9 = /%Cpu\(s\)\:\W+([0-9]+\.[0-9]+)\Wus,\W+([0-9]+\.[0-9]+)\Wsy,\W+([0-9]+\.[0-9]+)\Wni,\W+([0-9]+\.[0-9]+)\Wid,\W+([0-9]+.[0-9]+)\Wwa,\W+([0-9]+\.[0-9]+)\Whi,\W+([0-9]+\.[0-9]+)\Wsi,\W+([0-9]+\.[0-9]+)\Wst/;
-panachrome.cpMemre = /Mem:\W+[0-9]+k\W+total,\W+([0-9]+)k\W+used,\W+([0-9]+)k\W+free\W+([0-9]+)k\W+buffers[\s\S]*\W+([0-9]+)k\W+cached/;
-panachrome.cpMemre9 = /KiB\W+Mem\W+:\W+[0-9]+\W+total,\W+([0-9]+)\W+free,\W+([0-9]+)\W+used\W+([0-9]+)\W+buff\/cache/;
-panachrome.cpSwapre = /Swap:\W+[0-9]+k\W+total,\W+([0-9]+)k\W+used,\W+([0-9]+)k\W+free/;
-panachrome.cpSwapre9 = /KiB\W+Swap:\W+[0-9]+\W+total,\W+([0-9]+)\W+free,\W+([0-9]+)\W+used/;
-panachrome.cpCpuLoadAvgre = /load average: (\d+\.\d+)/;
+// "show system resources" returns the output of Linux top. The layout differs by PAN-OS release:
+//   old:    Cpu(s):  1.0%us,  ...  /  Mem:  1034604k total, 1008448k used, 26156k free, 41868k buffers
+//   9.x:    %Cpu(s):  1.0 us, ...  /  KiB Mem :  8171412 total,  1163160 free,  3000000 used,  4000000 buff/cache
+//   10.x+:  %Cpu(s):  1.0 us, ...  /  MiB Mem :   7979.5 total,   1136.5 free,  2929.7 used,  3913.3 buff/cache
+panachrome.cpCpure = /Cpu\(s\)\:\s*([0-9.]+)\s*%?\s*us,\s*([0-9.]+)\s*%?\s*sy,\s*([0-9.]+)\s*%?\s*ni,\s*([0-9.]+)\s*%?\s*id,\s*([0-9.]+)\s*%?\s*wa,\s*([0-9.]+)\s*%?\s*hi,\s*([0-9.]+)\s*%?\s*si,\s*([0-9.]+)\s*%?\s*st/;
+panachrome.cpMemreOld = /Mem:\s*[0-9]+k\s*total,\s*([0-9]+)k\s*used,\s*([0-9]+)k\s*free,?\s*([0-9]+)k\s*buffers[\s\S]*?([0-9]+)k\s*cached/;
+panachrome.cpMemreNew = /([KMG]iB)\s+Mem\s*:\s*([0-9.]+)\s*total,\s*([0-9.]+)\s*free,\s*([0-9.]+)\s*used,\s*([0-9.]+)\s*buff\/cache/;
+panachrome.cpSwapreOld = /Swap:\s*[0-9]+k\s*total,\s*([0-9]+)k\s*used,\s*([0-9]+)k\s*free/;
+panachrome.cpSwapreNew = /([KMG]iB)\s+Swap\s*:\s*([0-9.]+)\s*total,\s*([0-9.]+)\s*free,\s*([0-9.]+)\s*used/;
+panachrome.cpCpuLoadAvgre = /load average:\s*([0-9.]+)/;
+panachrome.unitToKiB = { KiB: 1, MiB: 1024, GiB: 1024*1024 };
 
 panachrome.cpMonitorFactory = function(mdevice) {
 	return (function() {
@@ -146,9 +134,6 @@ panachrome.cpMonitorFactory = function(mdevice) {
 				var topoutput = $result.text();
 
 				var rem = topoutput.match(panachrome.cpCpure);
-				if(rem === null) {
-					rem = topoutput.match(panachrome.cpCpure9);
-				}
 				if (rem === null) {
 					console.log("Error matching cp resources with cpu re");
 				} else {
@@ -162,49 +147,47 @@ panachrome.cpMonitorFactory = function(mdevice) {
 					o2store.cpu.st = rem[8];
 				}
 
-				rem = topoutput.match(panachrome.cpMemre);
-				var bc = 0;
-				var u = 0;
-				var f = 0;
+				// memory and swap are stored in KiB
+				var bc, u, f, mult;
+				rem = topoutput.match(panachrome.cpMemreNew);
 				if (rem) {
-					bc = parseInt(rem[3], 10) + parseInt(rem[4], 10);
-					u = parseInt(rem[1], 10) - bc;
-					f = parseInt(rem[2], 10) + bc; 
+					mult = panachrome.unitToKiB[rem[1]];
+					bc = parseFloat(rem[5])*mult;
+					u = parseFloat(rem[4])*mult;
+					f = parseFloat(rem[3])*mult + bc;
 				} else {
-					rem = topoutput.match(panachrome.cpMemre9);
+					rem = topoutput.match(panachrome.cpMemreOld);
 					if (rem) {
-						bc = parseInt(rem[3], 10);
-						u = parseInt(rem[2], 10);
-						f = parseInt(rem[1], 10) + bc; 	
+						// thanks JFG for the correct formula
+						bc = parseInt(rem[3], 10) + parseInt(rem[4], 10);
+						u = parseInt(rem[1], 10) - bc;
+						f = parseInt(rem[2], 10) + bc;
 					}
 				}
 				if(rem === null) {
 					console.log('Error in matching the CP result with MEMre');
 				} else {
-					// Mem: 1034604k total, 1008448k used, 26156k free, 41868k buffers
-					// Swap: 2008084k total, 485268k used, 1522816k free, 109572k ...
-					// thanks JFG for the correct formula
-					o2store.memory.used = ""+u;
-					o2store.memory.free = ""+f;
+					o2store.memory.used = ""+Math.round(u);
+					o2store.memory.free = ""+Math.round(f);
 				}
 
-				rem = topoutput.match(panachrome.cpSwapre);
+				rem = topoutput.match(panachrome.cpSwapreNew);
 				if (rem) {
-					u = rem[1];
-					f = rem[2];
+					mult = panachrome.unitToKiB[rem[1]];
+					u = Math.round(parseFloat(rem[4])*mult);
+					f = Math.round(parseFloat(rem[3])*mult);
 				} else {
-					rem = topoutput.match(panachrome.cpSwapre9);
+					rem = topoutput.match(panachrome.cpSwapreOld);
 					if (rem) {
-						u = rem[2];
-						f = rem[1];
+						u = rem[1];
+						f = rem[2];
 					}
 				}
 				if(rem === null) {
 					console.log('Error in matching the CP result with SWAPre');
 				} else {
-					// Swap: 2008084k total, 485268k used, 1522816k free, 109572k ...
-					o2store.swap.used = u;
-					o2store.swap.free = f;
+					o2store.swap.used = ""+u;
+					o2store.swap.free = ""+f;
 				}
 
 				rem = topoutput.match(panachrome.cpCpuLoadAvgre);
@@ -263,7 +246,7 @@ panachrome.dpMonitorFactory = function(mdevice) {
 
 				var o2store = {};
 
-				$dps = $result.find('data-processors:first');
+				var $dps = $result.find('data-processors:first');
 
 				if($dps.length == 0) {
 					// pre-5.0.9 API, only DP0 is dumped
@@ -333,8 +316,8 @@ panachrome.dpMonitorFactory = function(mdevice) {
 								tclm[coreid] = value;
 							});
 
-							if(tclm.length != tcla.length) {
-								conse.log("Different number of cores in resource monitor: "+tclm.length+" "+tcla.length);
+							if(tcla.length === 0 || tclm.length != tcla.length) {
+								console.log("Different number of cores in resource monitor: "+tclm.length+" "+tcla.length);
 								return;
 							}
 
@@ -412,6 +395,8 @@ panachrome.updateHwIfDetailsView = function(mdevice) {
 					continue;
 				cif = {};
 				toks = ifs[j].split("{");
+				if (toks.length < 2)
+					continue;
 				vals = toks[1].replace(/[\'{},]/g, '').replace(/^\s+|\s+$/g, '').replace(/\:\s/g,':').split(" ");
 				for(var k = 0; k < vals.length; k++) {
 					var t = vals[k].split(":");
@@ -419,7 +404,6 @@ panachrome.updateHwIfDetailsView = function(mdevice) {
 						continue;
 					cif[t[0]] = parseInt(t[1]);
 				}
-				console.log(cif);
 				mdevice.hwifdetailsView.hwifs["p"+(j+1)] = cif;
 			}
 			mdevice.hwifdetailsView.lastPoll = new Date();
@@ -450,7 +434,7 @@ panachrome.updateSessionPerVsysView = function(mdevice) {
 				var vsysname = $(this).attr('name');
 				panwxmlapi.getSessionVsysCount(mdevice.key, mdevice.address, mdevice.port, mdevice.proto, vsysname)
 					.then(function($result) {
-						var count = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+						var count = panwxmlapi.parseCount($result);
 						mdevice.sessionPerVsysView.perVsys.push({ name: vsysname, total: count });
 						mdevice.sessionPerVsysView.lastPoll = new Date();
 						if (mdevice.sessionPerVsysView.perVsys.length == mdevice.sessionPerVsysView.numVsyses) {
@@ -488,7 +472,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.active = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.active = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -508,7 +492,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.closed = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.closed = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -528,7 +512,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.closing = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.closing = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -548,7 +532,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.discard = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.discard = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -568,7 +552,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.initial = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.initial = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -588,7 +572,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.opening = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.opening = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -608,7 +592,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.decrypt = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.decrypt = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -628,7 +612,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.unknowntcp = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.unknowntcp = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -648,7 +632,7 @@ panachrome.updateSessionAdvancedView = function(mdevice) {
 
 			mdevice.sessionAdvancedView.numStats = mdevice.sessionAdvancedView.numStats+1;
 			mdevice.sessionAdvancedView.lastPoll = new Date();
-			mdevice.sessionAdvancedView.unknownudp = $.map($result.find('member'), function(x, i) { return +x.textContent; });
+			mdevice.sessionAdvancedView.unknownudp = panwxmlapi.parseCount($result);
 
 			if(mdevice.sessionAdvancedView.numStats == mdevice.sessionAdvancedView.maxNumStats) {
 				mdevice.triggerDetach("sessionadvancedview:update");
@@ -1159,7 +1143,7 @@ panachrome.addMonitored = function(address, port, username, password, proto) {
 	panwxmlapi.keygen(username, password, address, port, proto)
 		.then(function(key) {
 			candidate.key = key;
-			return panwxmlapi.sendOpCmd("<show><system><info></info></system></show>", key, address, port, proto);
+			return panwxmlapi.getSystemInfo(key, address, port, proto);
 		})
 		.then(function($ssi) {
 			var serial = $ssi.find("system").find("serial").text();
@@ -1167,17 +1151,17 @@ panachrome.addMonitored = function(address, port, username, password, proto) {
 			var model = $ssi.find("system").find("model").text();
 			var swversion = $ssi.find("system").find("sw-version").text();
 			var multivsys = $ssi.find("system").find("multi-vsys").text();
-			if ((typeof serial != "string") && (((serial.length > 12) || (serial.length < 11)) || (serial == 'unknown'))) {
+			if (serial === "" || serial == "unknown") {
 				promise.reject("Invalid response from device, serial: "+serial);
 				return;
 			}
-			if (typeof hostname == "undefined") {
+			if (hostname === "") {
 				hostname = "@"+serial;
 			}
-			if (typeof model == "undefined") {
+			if (model === "") {
 				model = "PA-UNKNOWN";
 			}
-			if (typeof swversion == "undefined") {
+			if (swversion === "") {
 				swversion = "UNKNOWN";
 			}
 			candidate.serial = serial;
@@ -1186,8 +1170,7 @@ panachrome.addMonitored = function(address, port, username, password, proto) {
 			candidate.swversion = swversion;
 			candidate.multivsys = (multivsys == "off" ? false : true);
 
-			// default 1 DP, with pre-5.0.9 only DP0 was retrieved even on PA-5Ks. If post-5.0.9 numDPs is automatically updated
-			// by DP resource monitor
+			// default 1 DP, numDPs is updated by the DP resource monitor
 			candidate.sysdefs = { numDPs: 1 };
 
 			// console.log(candidate);
@@ -1206,6 +1189,7 @@ panachrome.addMonitored = function(address, port, username, password, proto) {
 					panachrome.initDeviceSystemInfo(candidate);
 
 					panachrome.initDeviceMonitors(candidate);
+					panachrome.hookDeviceEvents(candidate);
 
 					panachrome.monitored[serial] = candidate;
 					panachrome.monitored.triggerDetach("add", { detail: serial });
@@ -1222,112 +1206,146 @@ panachrome.addMonitored = function(address, port, username, password, proto) {
 
 	return promise;
 };
-panachrome.alreadyMonitoredByURL = function(url) {
-	var duri = URI(url);
-	var address = duri.hostname();
-	var port = duri.port();
-	var proto = duri.protocol();
-	if (port === "") {
-		if(proto == "https")
-			port = "443";
-		else if(proto == "http")
-			port = "80";
+// state exposed to the UI pages. The engine lives in the offscreen document, the UI
+// pages are separate contexts, so they get plain-data snapshots (no keys, no handles).
+panachrome.viewKeys = {
+	"countersview:update": "countersView",
+	"ifsview:update": "ifsView",
+	"sessioninfoview:update": "sessioninfoView",
+	"dpview:update": "dpView",
+	"cpview:update": "cpView",
+	"sessionadvancedview:update": "sessionAdvancedView",
+	"sessionpervsysview:update": "sessionPerVsysView",
+	"hwifdetailsview:update": "hwifdetailsView"
+};
+panachrome.snapshotCommonFields = ["serial", "hostname", "model", "swversion", "multivsys", "address", "port", "proto",
+	"sysdefs", "interfaces", "polling", "lastPoll", "pendingJobs"];
+panachrome.snapshotDevice = function(mdevice) {
+	var snap = {};
+	var k;
+	for (k = 0; k < panachrome.snapshotCommonFields.length; k++) {
+		snap[panachrome.snapshotCommonFields[k]] = mdevice[panachrome.snapshotCommonFields[k]];
 	}
+	for (var ev in panachrome.viewKeys) {
+		snap[panachrome.viewKeys[ev]] = mdevice[panachrome.viewKeys[ev]];
+	}
+	return snap;
+};
+panachrome.broadcast = function(msg) {
+	msg.target = "ui";
+	chrome.runtime.sendMessage(msg).catch(function() {});
+};
+panachrome.hookDeviceEvents = function(mdevice) {
+	Object.keys(panachrome.viewKeys).forEach(function(ev) {
+		mdevice.on(ev, function() {
+			var fields = {
+				sysdefs: mdevice.sysdefs,
+				interfaces: mdevice.interfaces,
+				lastPoll: mdevice.lastPoll
+			};
+			fields[panachrome.viewKeys[ev]] = mdevice[panachrome.viewKeys[ev]];
+			panachrome.broadcast({ cmd: "deviceevent", serial: mdevice.serial, event: ev, fields: fields });
+		});
+	});
+};
+panachrome.listMonitored = function() {
+	var res = [];
 	for (var cs in panachrome.monitored) {
 		var cd = panachrome.monitored[cs];
 		if (!(cd instanceof panachrome.mDevice)) {
 			continue;
 		}
-		if(cd.address == address && cd.proto == proto && cd.port == port) {
-			return true;
-		}
+		res.push({
+			hostname: cd.hostname,
+			serial: cd.serial,
+			address: cd.proto+"://"+cd.address+":"+cd.port,
+			polling: cd.polling,
+			pendingJobs: Object.keys(cd.pendingJobs || {}).length,
+			lastPoll: cd.lastPoll
+		});
 	}
-	return false;
-};
-
-panachrome.closeMonitoredViews = function(event) {
-	var views = chrome.extension.getViews();
-	for(var j = 0; j < views.length; j++) {
-		if(views[j].location.href.indexOf("stats.html?d="+event.detail) != -1) {
-			views[j].close();
-		}
-	}
-};
-panachrome.browserActionClicked = function(tab) {
-	chrome.tabs.create({url: chrome.extension.getURL("monitorlist.html"), active:true});
+	return res;
 };
 panachrome.updateBrowserActionBadge = function() {
-	chrome.browserAction.setBadgeText({ text: ""+panachrome.getNumMonitored() });
+	panachrome.sendToWorker({ cmd: "badge", text: ""+panachrome.getNumMonitored() });
 };
 
-panachrome.install = function(details) {
-	console.log("Install");
-
-	// options
-	if(localStorage.getItem('notifTimeout') == null) localStorage.setItem('notifTimeout', '5');
-	if(localStorage.getItem('trackingInterval') == null) localStorage.setItem('trackingInterval', '30');
-	if(localStorage.getItem('requestTimeout') == null) localStorage.setItem('requestTimeout', '5');
-	if(localStorage.getItem('maxRunningReq') == null) localStorage.setItem('maxRunningReq', '2');
-	if(localStorage.getItem('ifsTrackingInterval') == null) localStorage.setItem('ifsTrackingInterval', '5');
-	if(localStorage.getItem('jobsTrackingInterval') == null) localStorage.setItem('jobsTrackingInterval', '30');
-	if(localStorage.getItem('pollingDefault') == null) localStorage.setItem('pollingDefault', '1');
-	if(localStorage.getItem('filteredJobs') == null) localStorage.setItem('filteredJobs', "[]");
+// message handlers, requests come from the UI pages and the service worker
+panachrome.commands = {
+	getmonitored: function(request, respond) {
+		respond({ result: panachrome.listMonitored() });
+	},
+	getdevice: function(request, respond) {
+		var md = panachrome.monitored[request.serial];
+		if (!(md instanceof panachrome.mDevice)) {
+			respond({ error: "Device "+request.serial+" not found" });
+			return;
+		}
+		respond({ result: panachrome.snapshotDevice(md) });
+	},
+	add: function(request, respond) {
+		var port = String(request.port || (request.proto == "http" ? "80" : "443"));
+		panachrome.addMonitored(request.address, port, request.user, request.password, request.proto)
+			.then(function(msg) {
+				var md = panachrome.getMonitoredByAddress(request.address, port, request.proto);
+				respond({ result: msg, serial: md ? md.serial : null });
+			}, function(err) {
+				respond({ error: String(err) });
+			});
+		return true;
+	},
+	remove: function(request, respond) {
+		panachrome.delMonitored(request.serial);
+		respond({ result: "ok" });
+	},
+	readconfig: function(request, respond) {
+		panachrome.readConfig();
+		respond({ result: "ok" });
+	},
+	updateview: function(request, respond) {
+		var md = panachrome.monitored[request.serial];
+		if (md instanceof panachrome.mDevice) {
+			if (request.view == "sessionAdvanced") panachrome.updateSessionAdvancedView(md);
+			if (request.view == "sessionPerVsys") panachrome.updateSessionPerVsysView(md);
+			if (request.view == "hwifdetails") panachrome.updateHwIfDetailsView(md);
+		}
+		respond({ result: "ok" });
+	},
+	filterjob: function(request, respond) {
+		panachrome.addFilteredJob(request.jobtype);
+		respond({ result: "ok" });
+	}
 };
-panachrome.startup = function() {
-	panwstatsdb.deleteAll();
-};
-
-// setup
 panachrome.setup = function() {
-	var onrequest = function(request, sender, sendResponse) {
-		if(request.cmd == "getmonitored") {
-			var res = [];
-			for (var cs in panachrome.monitored) {
-				var cd = panachrome.monitored[cs];
-				if (cd instanceof panachrome.mDevice) {
-					res.push([cd.hostname, cd.serial, cd.proto+"://"+cd.address+":"+cd.port]);
-				}
-			}
-			sendResponse({ result: res });
+	var onmessage = function(request, sender, sendResponse) {
+		if (sender.id !== chrome.runtime.id || request.target !== "engine") {
 			return;
 		}
-		if(request.cmd == "isalreadymonitored") {
-			sendResponse({ result: panachrome.alreadyMonitoredByURL(sender.tab.url) });
-		}
-		if(request.cmd == "readconfig") {
-			panachrome.readConfig();
+		var handler = panachrome.commands[request.cmd];
+		if (typeof handler != "function") {
 			return;
 		}
-		if(request.cmd == 'add') {
-			if(panachrome.alreadyMonitoredByURL(sender.tab.url)) {
-				return;
-			}
-			var duri = URI(sender.tab.url);
-			var port = duri.port();
-			port = (port === "") ? 443 : port;
-			panachrome.addMonitored(duri.hostname(), port, request.user, request.password, duri.protocol())
-				.then(panachrome.info, panachrome.error);
-		}
+		return handler(request, sendResponse);
 	};
 
-	// init the background page
+	// the stats history belongs to the devices of this session only
+	panwstatsdb.deleteAll();
+
 	panachrome.readConfig();
 	RSVP.EventTarget.mixin(panachrome.monitored);
-	chrome.runtime.onStartup.addListener(panachrome.startup);
-	chrome.runtime.onInstalled.addListener(panachrome.install);
-	chrome.extension.onRequest.addListener(onrequest);
-	chrome.notifications.onButtonClicked.addListener(panachrome.filterJobClicked);
+	chrome.runtime.onMessage.addListener(onmessage);
 
-	// setup browseraction stuff
-	chrome.browserAction.setBadgeText({ text: "0" });
-	chrome.browserAction.setBadgeBackgroundColor({ color: "#9db93f" });
-	chrome.browserAction.onClicked.addListener(panachrome.browserActionClicked);
-	panachrome.monitored.on("add", panachrome.updateBrowserActionBadge);
-	panachrome.monitored.on("delete", panachrome.updateBrowserActionBadge);
-	panachrome.monitored.on("delete", panachrome.closeMonitoredViews);
-
-	// to remove cookies from API calls
-	panwxmlapi.setupCookieRemover();
+	panachrome.monitored.on("add", function() {
+		panachrome.updateBrowserActionBadge();
+		panachrome.broadcast({ cmd: "deviceschanged" });
+	});
+	panachrome.monitored.on("delete", function(event) {
+		panachrome.updateBrowserActionBadge();
+		panachrome.broadcast({ cmd: "devicedeleted", serial: event.detail });
+		panachrome.broadcast({ cmd: "deviceschanged" });
+	});
+	panachrome.updateBrowserActionBadge();
+	panachrome.sendToWorker({ cmd: "engineready" });
 };
 
 panachrome.setup();

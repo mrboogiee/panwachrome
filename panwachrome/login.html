@@ -1,8 +1,10 @@
+<!DOCTYPE html>
 <html>
 	<head>
-		<title>Pan(w)achrome - Login to device</title>
+		<meta charset="utf-8">
+		<title>Pan(w)achrome - Add device</title>
 		<link href="css/panachrome.css" media="all" rel="stylesheet" type="text/css" />
-	</head
+	</head>
 	<body>
 		<div id="header"></div>
 		<div id="container">
@@ -10,16 +12,25 @@
 				<div id="loginheader"><span>Pan(w)achrome</span></div>
 				<div id="loginmessage"></div>
 				<div id="loginform">
-					<p><span id="loginhost">Host XXX</span>
+					<p><span id="loginhost">Add a PAN-OS device (XML API)</span>
+					<p>Protocol
+					<p><select id="proto" class="logininput"><option value="https">https</option><option value="http">http</option></select>
+					<p>Address (hostname or IP)
+					<p><input type="text" class="logininput" id="address" size="25" />
+					<p>Port
+					<p><input type="text" class="logininput" id="port" value="443" size="6" />
 					<p>Username
-					<p><input type="text" class="logininput" id="username" name="username" size="15" />
+					<p><input type="text" class="logininput" id="username" name="username" size="15" autocomplete="off" />
 					<p>Password
-					<p><input type="password" class="logininput" id="password" name="password" size="15" />
+					<p><input type="password" class="logininput" id="password" name="password" size="15" autocomplete="off" />
+					<p><small>Used once to request an API key from the device. The password is not stored; the key is kept in memory until the browser closes.</small>
 					<p><a id="loginbtn" href="#">Add</a>
 				</div>
 			</div>
 		</div>
 		<script type="application/javascript" src="URI.js"></script>
+		<script type="application/javascript" src="rsvp.js"></script>
+		<script type="application/javascript" src="bridge.js"></script>
 		<script type="application/javascript" src="login.js"></script>
 	</body>
 </html>
