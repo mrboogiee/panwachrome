@@ -77,6 +77,12 @@
 			if (port.value == "80" || port.value == "443") port.value = (this.value == "http" ? "80" : "443");
 		});
 		d.querySelector('#loginbtn').addEventListener('click', addMonitoredDevice);
+		// Enter in the password field submits, same as clicking the button (a keydown is a user gesture, so the permission prompt works)
+		d.querySelector('#password').addEventListener('keydown', function(ev) {
+			if (ev.key === "Enter" && !ev.repeat) {
+				addMonitoredDevice(ev);
+			}
+		});
 	};
 
 	setup();
